@@ -1,0 +1,252 @@
+football-team/
+  README.md
+  requirements.txt
+  team.json
+  main.py
+  models.py
+  storage.py
+
+from dataclasses import dataclass, asdict
+from typing import Literal, Dict, Any
+
+
+Position = Literal["GK", "DF", "MF", "FW"]
+
+
+@dataclass
+class Player:
+    name: str
+    rating: int
+    shirt_number: int
+    nationality: str
+    age: int
+    height_cm: int
+    weight_kg: int
+    position: Position
+
+    def validate(self) -> None:
+        if not (1 <= self.rating <= 99):
+            raise ValueError("rating 1-99 arasında olmalı.")
+        if not (1 <= self.shirt_number <= 99):
+            raise ValueError("forma numarası 1-99 arasında olmalı.")
+        if not (10 <= self.age <= 55):
+            raise ValueError("yaş 10-55 aralığında olmalı (mantık kontrolü).")
+        if not (120 <= self.height_cm <= 230):
+            raise ValueError("boy (cm) 120-230 aralığında olmalı.")
+        if not (35 <= self.weight_kg <= 140):
+            raise ValueError("kilo (kg) 35-140 aralığında olmalı.")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Coach:
+    name: str
+    nationality: str
+    age: int
+    role: str = "Head Coach"  # Assistant, GK Coach vb.
+
+    def validate(self) -> None:
+        if not (18 <= self.age <= 80):
+            raise ValueError("teknik direktör yaşı 18-80 aralığında olmalı.")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+mport json
+from pathlib import Path
+from typing import Dict, Any, List
+
+DEFAULT_DB = "team.json"
+
+
+def load_db(path: str = DEFAULT_DB) -> Dict[str, Any]:
+    p = Path(path)
+    if not p.exists():
+        return {"team_name": "Unnamed FC", "players": [], "coaches": []}
+    with p.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_db(db: Dict[str, Any], path: str = DEFAULT_DB) -> None:
+    p = Path(path)
+    with p.open("w", encoding="utf-8") as f:
+        json.dump(db, f, ensure_ascii=False, indent=2)
+
+
+def add_player(db: Dict[str, Any], player_dict: Dict[str, Any]) -> None:
+    # forma numarası çakışmasın
+    if any(p["shirt_number"] == player_dict["shirt_number"] for p in db["players"]):
+        raise ValueError("Bu forma numarası zaten kullanılıyor.")
+    db["players"].append(player_dict)
+
+
+def add_coach(db: Dict[str, Any], coach_dict: Dict[str, Any]) -> None:
+    db["coaches"].append(coach_dict)
+
+
+def find_players(db: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
+    q = query.lower().strip()
+    return [p for p in db["players"] if q in p["name"].lower()]
+
+
+def list_players_sorted(db: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return sorted(db["players"], key=lambda x: (-x["rating"], x["shirt_number"]))
+
+from models import Player, Coach
+import storage
+
+
+def prompt_int(label: str) -> int:
+    while True:
+        raw = input(f"{label}: ").strip()
+        try:
+            return int(raw)
+        except ValueError:
+            print("Sayı gir.")
+
+
+def add_player_flow(db):
+    print("\n--- Oyuncu Ekle ---")
+    name = input("Ad Soyad: ").strip()
+    rating = prompt_int("Reyting (1-99)")
+    shirt_number = prompt_int("Forma No (1-99)")
+    nationality = input("Uyruk: ").strip()
+    age = prompt_int("Yaş")
+    height_cm = prompt_int("Boy (cm)")
+    weight_kg = prompt_int("Kilo (kg)")
+    position = input("Pozisyon (GK/DF/MF/FW): ").strip().upper()
+
+    player = Player(
+        name=name,
+        rating=rating,
+        shirt_number=shirt_number,
+        nationality=nationality,
+        age=age,
+        height_cm=height_cm,
+        weight_kg=weight_kg,
+        position=position  # type: ignore
+    )
+    player.validate()
+
+    storage.add_player(db, player.to_dict())
+    print("✅ Oyuncu eklendi.")
+
+
+def add_coach_flow(db):
+    print("\n--- Teknik Direktör Ekle ---")
+    name = input("Ad Soyad: ").strip()
+    nationality = input("Uyruk: ").strip()
+    age = prompt_int("Yaş")
+    role = input("Rol (Head Coach/Assistant/GK Coach...): ").strip() or "Head Coach"
+
+    coach = Coach(name=name, nationality=nationality, age=age, role=role)
+    coach.validate()
+
+    storage.add_coach(db, coach.to_dict())
+    print("✅ Teknik ekip eklendi.")
+
+
+def list_team(db):
+    print(f"\n=== {db.get('team_name','Unnamed FC')} ===")
+
+    print("\n-- Teknik Ekip --")
+    if not db["coaches"]:
+        print("(yok)")
+    else:
+        for c in db["coaches"]:
+            print(f"- {c['role']}: {c['name']} ({c['nationality']}, {c['age']})")
+
+    print("\n-- Kadro (reytinge göre) --")
+    players = storage.list_players_sorted(db)
+    if not players:
+        print("(yok)")
+    else:
+        for p in players:
+            print(
+                f"#{p['shirt_number']:>2} {p['name']:<20} "
+                f"{p['position']:<2}  RTG:{p['rating']:>2}  "
+                f"{p['nationality']}, {p['age']}y, {p['height_cm']}cm, {p['weight_kg']}kg"
+            )
+
+
+def search_player(db):
+    q = input("Aranacak oyuncu adı: ").strip()
+    res = storage.find_players(db, q)
+    if not res:
+        print("Bulunamadı.")
+        return
+    for p in res:
+        print(
+            f"#{p['shirt_number']} {p['name']} - {p['position']} - "
+            f"RTG:{p['rating']} - {p['nationality']} - {p['age']}y - {p['height_cm']}cm/{p['weight_kg']}kg"
+        )
+
+
+def set_team_name(db):
+    name = input("Takım adı: ").strip()
+    if name:
+        db["team_name"] = name
+        print("✅ Takım adı güncellendi.")
+
+
+def main():
+    db = storage.load_db()
+
+    while True:
+        print("\nMenü:")
+        print("1) Takım adını ayarla")
+        print("2) Oyuncu ekle")
+        print("3) Teknik ekip ekle")
+        print("4) Takımı listele")
+        print("5) Oyuncu ara")
+        print("0) Çıkış")
+
+        choice = input("Seçim: ").strip()
+        try:
+            if choice == "1":
+                set_team_name(db)
+            elif choice == "2":
+                add_player_flow(db)
+            elif choice == "3":
+                add_coach_flow(db)
+            elif choice == "4":
+                list_team(db)
+            elif choice == "5":
+                search_player(db)
+            elif choice == "0":
+                storage.save_db(db)
+                print("💾 Kaydedildi. Görüşürüz!")
+                break
+            else:
+                print("Geçersiz seçim.")
+        except Exception as e:
+            print(f"⚠️ Hata: {e}")
+
+        # her adım sonrası kaydet
+        storage.save_db(db)
+
+
+if __name__ == "__main__":
+    main()
+
+{
+  "team_name": "Atlas FC",
+  "players": [],
+  "coaches": []
+}
+players """
+SNT Erling Haaland/90/9/23/1.96/82
+SLK Raphina/89/18/28/1.84/68
+SĞK Ousmane Dembele 92/10/27/1.88/71
+MOO Vithina 88/8/24/1.78/73
+MO Fabian Ruiz 87/24/26/1.74/64
+MO Pedri 89/20/21/1.89/79
+SLB Nuno Mendes 86/6/23/1.86/78
+STP Virgil Van Dijk 90/4/33/1.95/84(C)
+STP Marqui Marquinhos 88/3/30/1.98/85
+SĞB Achraf Hakimi 89/29/28/2.01/87
+KL Ginaughli Donnarumma 89/1/32/1.99/85
+TD Arne Slot -/-/36/1.75/59
+"""
